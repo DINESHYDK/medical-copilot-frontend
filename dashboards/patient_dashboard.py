@@ -2,6 +2,7 @@
 import streamlit as st
 from components.sidebar import sidebar
 from components.charts import patient_line_chart, appointment_donut_chart
+from frontend.dashboard import reference_range_dashboard
 
 # All categories and their modules
 CATEGORIES = {
@@ -360,7 +361,17 @@ def show_category_view():
 def show_module_detail():
     code, name, desc, tables, records = st.session_state.selected_module
     cat_key = st.session_state.selected_category
-    
+
+    # ── MODULE H3: Reference Range Validation — render REAL dashboard ────
+    if code == "H3":
+        reference_range_dashboard()
+        st.divider()
+        if st.button("⬅ Back to Modules"):
+            st.session_state.view = "category"
+            st.rerun()
+        return
+    # ── All other modules: generic placeholder ───────────────────────────
+
     # Breadcrumb
     st.markdown(f"Category {cat_key.split('-')[0].strip()} > {name}")
     st.markdown(f"# {name}")
