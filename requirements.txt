@@ -1,3 +1,7 @@
 streamlit
 streamlit-option-menu
 matplotlib
+psycopg2-binary
+python-dotenv
+pandas
+requests
