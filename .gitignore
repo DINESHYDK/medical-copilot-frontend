@@ -1,0 +1,80 @@
+# ===============================
+# AI / model / secret files
+# ===============================
+
+# Environment / secret files
+.env
+.env.*
+secrets.*
+secrets.txt
+*.key
+*.pem
+*.token
+*.secret
+
+# AI tool notes / exports (specific)
+CLAUDE.md
+*CLAUDE*.md
+IMPLEMENTATION_PLAN.md
+*IMPLEMENTATION_PLAN*.md
+*GPT*.md
+*OPENAI*.md
+*ANTHROPIC*.md
+
+# Model weights / saved checkpoints (very large)
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+*.bin
+*.model
+
+# Huggingface / datasets / cache
+.cache/
+transformers_cache/
+hf_cache/
+huggingface/
+datasets/
+.venv/
+venv/
+env/
+ENV/
+
+# Jupyter / notebook checkpoints / outputs
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+*.nbconvert.ipynb
+
+# Logs and runtime
+*.log
+logs/
+tmp/
+out/
+outputs/
+
+# Database / sqlite / local stores
+*.sqlite
+*.db
+*.db-journal
+
+# IDE / OS junk
+.vscode/
+.idea/
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+
+# Compiled python
+__pycache__/
+*.py[cod]
+
+# Large archives you don't want in git
+*.zip
+*.tar.gz
+*.tgz
+*.rar
+
+# Generated or model folders
+generated/
+models/
+checkpoints/
