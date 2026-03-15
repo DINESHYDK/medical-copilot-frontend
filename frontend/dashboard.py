@@ -1,22 +1,18 @@
 # ============================================================================
 # Module M45: Reference Range Validation Database
-# Frontend — Premium Enterprise Clinical Dashboard
+# Frontend — 100% Native Streamlit Dashboard (Zero Custom CSS)
 # ============================================================================
-# UI/UX Features:
-#   - Material Design icons (:material/icon_name:) — no emojis
+# Architecture:
+#   - All styling via .streamlit/config.toml ONLY (no inline HTML/CSS)
 #   - @st.cache_data(ttl=60) on all GET queries
-#   - st.toast() micro-interactions on successful submission
-#   - Altair severity breakdown chart on Alerts tab
-#   - st.column_config for professional dataframe rendering
-#   - st.spinner with Material icons for loading states
-#   - Clean 2-column form layout with visual confirmation cards
-#   - Searchable alerts with pandas filtering
-#   - Cache invalidation via Refresh button
+#   - st.metric() for KPI cards, st.column_config for dataframes
+#   - st.bar_chart for severity visualization
+#   - st.toast() for micro-interactions
+#   - st.container(border=True) for card sections
 # ============================================================================
 
 import streamlit as st
 import pandas as pd
-import altair as alt
 
 # Import DB helper
 import sys, os
@@ -28,6 +24,7 @@ from frontend.db_connection import run_query, run_insert
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_patients():
+    """Fetch all patients with computed age for the submission form dropdown."""
     return run_query("""
         SELECT patient_id, sex, ethnicity,
                EXTRACT(YEAR FROM AGE(CURRENT_DATE, dob))::INT AS age
@@ -36,10 +33,12 @@ def fetch_patients():
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_tests():
+    """Fetch all lab tests for dropdown selection."""
     return run_query("SELECT test_id, test_name FROM lab_test ORDER BY test_id")
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_methods():
+    """Fetch all analytical methods (instrument + technique)."""
     return run_query("""
         SELECT method_id, instrument, technique
         FROM method ORDER BY method_id
@@ -47,6 +46,7 @@ def fetch_methods():
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_alerts(severity_filter=None):
+    """Fetch QC alerts from the database view, optionally filtered by severity."""
     if severity_filter and severity_filter != "All":
         return run_query(
             "SELECT * FROM vw_critical_patient_alerts WHERE alert_severity = %s",
@@ -56,6 +56,7 @@ def fetch_alerts(severity_filter=None):
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_ranges(test_id):
+    """Fetch reference ranges for a specific lab test, joined with method details."""
     return run_query("""
         SELECT rr.range_id, rr.sex, rr.min_age, rr.max_age,
                rr.lower_limit, rr.upper_limit,
@@ -70,6 +71,7 @@ def fetch_ranges(test_id):
 
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_adjustments(range_ids):
+    """Fetch condition-based range adjustments for a list of range IDs."""
     return run_query("""
         SELECT ra.adj_id, ra.range_id, c.condition_name,
                ra.adjustment_type, ra.adjustment_value
@@ -80,80 +82,10 @@ def fetch_adjustments(range_ids):
     """, (range_ids,))
 
 
-# ─── SEVERITY CHART HELPER ─────────────────────────────────────────────────
-
-def render_severity_chart(df):
-    """Render a polished Altair bar chart showing alert severity breakdown."""
-    if 'alert_severity' not in df.columns or df.empty:
-        return
-
-    severity_counts = df['alert_severity'].value_counts().reset_index()
-    severity_counts.columns = ['Severity', 'Count']
-
-    color_scale = alt.Scale(
-        domain=['Critical', 'Abnormal', 'Normal'],
-        range=['#E53935', '#FB8C00', '#43A047']
-    )
-
-    chart = (
-        alt.Chart(severity_counts)
-        .mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6, size=48)
-        .encode(
-            x=alt.X('Severity:N', sort=['Critical', 'Abnormal', 'Normal'],
-                     axis=alt.Axis(labelFontSize=13, titleFontSize=14, labelColor='#FAFAFA', titleColor='#FAFAFA')),
-            y=alt.Y('Count:Q',
-                     axis=alt.Axis(labelFontSize=12, titleFontSize=14, labelColor='#FAFAFA', titleColor='#FAFAFA')),
-            color=alt.Color('Severity:N', scale=color_scale, legend=None),
-            tooltip=[
-                alt.Tooltip('Severity:N', title='Severity'),
-                alt.Tooltip('Count:Q', title='Count')
-            ]
-        )
-        .properties(height=260, title=alt.Title('Alert Severity Breakdown', fontSize=16, color='#FAFAFA'))
-        .configure_view(strokeWidth=0)
-        .configure(background='transparent')
-    )
-    st.altair_chart(chart, use_container_width=True)
-
-
-# ─── KPI CARDS HELPER ─────────────────────────────────────────────────────
-
-def render_kpi_cards(total, critical_count, abnormal_count, normal_count, active_filter="All"):
-    """
-    Render bordered KPI metric cards using native Streamlit containers.
-    Each card gets a colored dot indicator, uppercase label, and large value.
-    The active card (matching the current filter) highlights in its accent color.
-    """
-    cards = [
-        ("TOTAL ALERTS", total, "#0A66C2", "All"),
-        ("CRITICAL", critical_count, "#E53935", "Critical"),
-        ("ABNORMAL", abnormal_count, "#FB8C00", "Abnormal"),
-        ("NORMAL", normal_count, "#43A047", "Normal"),
-    ]
-
-    cols = st.columns(4, gap="medium")
-    for col, (label, value, color, filter_key) in zip(cols, cards):
-        is_active = (active_filter == filter_key)
-        value_color = color if is_active else "#FAFAFA"
-        with col:
-            with st.container(border=True):
-                st.markdown(
-                    f'<span style="color:{color}; font-size:10px;">&#11044;</span> '
-                    f'<span style="font-size:11px; font-weight:600; text-transform:uppercase; '
-                    f'letter-spacing:0.06em; color:#9AA5B4;">{label}</span>',
-                    unsafe_allow_html=True
-                )
-                st.markdown(
-                    f'<div style="font-size:34px; font-weight:700; color:{value_color}; '
-                    f'margin-top:2px; line-height:1;">{value}</div>',
-                    unsafe_allow_html=True
-                )
-
-
 # ─── MAIN DASHBOARD ────────────────────────────────────────────────────────
 
 def reference_range_dashboard():
-    """Main dashboard function for Module M45 — Reference Range Validation."""
+    """Main dashboard entry point for Module M45 — Reference Range Validation."""
 
     # ── Header ───────────────────────────────────────────────────────────
     header_col, refresh_col = st.columns([5, 1])
@@ -161,7 +93,7 @@ def reference_range_dashboard():
         st.markdown("### :material/science: Reference Range Validation Database")
         st.caption("Module M45  —  Lab test validation with automated QC alerts")
     with refresh_col:
-        st.markdown("")
+        st.markdown("")  # spacer
         if st.button(":material/sync: Refresh", use_container_width=True,
                       help="Clear cached data and reload from database"):
             st.cache_data.clear()
@@ -170,7 +102,7 @@ def reference_range_dashboard():
 
     st.divider()
 
-    # ── Tabs (Material icons) ────────────────────────────────────────────
+    # ── Tabs ─────────────────────────────────────────────────────────────
     tab1, tab2, tab3 = st.tabs([
         ":material/add_circle: Submit Lab Result",
         ":material/monitoring: Critical Alerts",
@@ -278,9 +210,9 @@ def reference_range_dashboard():
                             # Toast micro-interaction
                             st.toast("Lab result recorded & validated!", icon=":material/check_circle:")
 
-                            # Visual confirmation card
+                            # Visual confirmation
                             st.success(
-                                f"Result submitted successfully   —   **Result ID: {result_id}**",
+                                f"Result submitted successfully  —  **Result ID: {result_id}**",
                                 icon=":material/check_circle:"
                             )
 
@@ -330,16 +262,32 @@ def reference_range_dashboard():
         else:
             df = pd.DataFrame(alerts)
 
-            # ── KPI Metric Cards (interactive bordered cards) ─────────────
+            # ── KPI Metric Cards (native st.metric) ─────────────────────
             total = len(df)
             critical_count = int((df['alert_severity'] == 'Critical').sum()) if 'alert_severity' in df.columns else 0
             abnormal_count = int((df['alert_severity'] == 'Abnormal').sum()) if 'alert_severity' in df.columns else 0
             normal_count   = int((df['alert_severity'] == 'Normal').sum()) if 'alert_severity' in df.columns else 0
 
-            render_kpi_cards(total, critical_count, abnormal_count, normal_count, severity_filter)
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                with st.container(border=True):
+                    st.metric("Total Alerts", total)
+            with c2:
+                with st.container(border=True):
+                    st.metric("Critical", critical_count, help="Dangerously out of range")
+            with c3:
+                with st.container(border=True):
+                    st.metric("Abnormal", abnormal_count, help="Outside normal limits")
+            with c4:
+                with st.container(border=True):
+                    st.metric("Normal", normal_count, help="Within reference range")
 
-            # ── Severity Breakdown Chart ─────────────────────────────────
-            render_severity_chart(df)
+            # ── Severity Breakdown Chart (native st.bar_chart) ───────────
+            if 'alert_severity' in df.columns:
+                severity_counts = df['alert_severity'].value_counts().reset_index()
+                severity_counts.columns = ['Severity', 'Count']
+                severity_counts = severity_counts.set_index('Severity')
+                st.bar_chart(severity_counts, color="#0A66C2")
 
             st.divider()
 
@@ -391,7 +339,7 @@ def reference_range_dashboard():
                     icon=":material/search_off:"
                 )
             else:
-                # ── Professional Dataframe with column_config ────────────
+                # ── Professional Dataframe (native column_config) ────────
                 column_config = {
                     "Patient ID": st.column_config.NumberColumn("Patient ID", format="%d"),
                     "Age": st.column_config.NumberColumn("Age", format="%d yrs"),
@@ -407,20 +355,8 @@ def reference_range_dashboard():
                     "Time": st.column_config.DatetimeColumn("Timestamp", format="DD MMM YYYY, HH:mm"),
                 }
 
-                # Conditional row styling
-                def highlight_severity(row):
-                    severity = row.get('Severity', '')
-                    if severity == 'Critical':
-                        return ['background-color: rgba(229,57,53,0.18); color: #EF5350; font-weight: 600'] * len(row)
-                    elif severity == 'Abnormal':
-                        return ['background-color: rgba(251,140,0,0.15); color: #FFA726; font-weight: 600'] * len(row)
-                    elif severity == 'Normal':
-                        return ['background-color: rgba(67,160,71,0.12); color: #66BB6A'] * len(row)
-                    return [''] * len(row)
-
-                styled_df = display_df.style.apply(highlight_severity, axis=1)
                 st.dataframe(
-                    styled_df,
+                    display_df,
                     use_container_width=True,
                     hide_index=True,
                     column_config=column_config

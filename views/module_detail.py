@@ -1,8 +1,20 @@
 import streamlit as st
 from components.tabs import module_tabs
+from frontend.dashboard import reference_range_dashboard
 
 def module_detail():
-    code, name = st.session_state.selected_module
+    code = st.session_state.selected_module[0]
+    name = st.session_state.selected_module[1]
+
+    # ── MODULE H3: Reference Range Validation — render REAL dashboard ────
+    if code == "H3":
+        reference_range_dashboard()
+        st.divider()
+        if st.button("⬅ Back to Modules"):
+            st.session_state.view = "modules"
+            st.rerun()
+        return
+    # ── All other modules: generic placeholder ───────────────────────────
 
     st.markdown(f"### Category A > {name}")
     st.markdown(f"## {name}")
@@ -52,4 +64,4 @@ END;
 
     if st.button("⬅ Back to Modules"):
         st.session_state.view = "modules"
-        st.experimental_rerun()
+        st.rerun()
