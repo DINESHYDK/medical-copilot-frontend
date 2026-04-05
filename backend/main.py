@@ -370,3 +370,33 @@ def resolve_alert(alert_id: int):
         return {"message": f"Alert {alert_id} successfully marked as resolved."}
     finally:
         conn.close()
+
+# ── GET /api/results/filter — Date Range Query ──────────────────────────────
+@app.get("/api/results/filter")
+def get_results_by_date(start_date: str, end_date: str):
+    """
+    Fetch lab results within a specific date range (YYYY-MM-DD format).
+    Demonstrates: Using SQL BETWEEN clause with parameterised dates.
+    """
+    try:
+        # Validate date format (basic check)
+        datetime.strptime(start_date, "%Y-%m-%d")
+        datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT r.result_id, r.measured_value, r.timestamp, p.patient_id 
+                FROM test_result r
+                JOIN patient p ON r.patient_id = p.patient_id
+                WHERE r.timestamp::DATE BETWEEN %s AND %s
+                ORDER BY r.timestamp ASC
+            """, (start_date, end_date))
+            results = cur.fetchall()
+            
+        return {"count": len(results), "start_date": start_date, "end_date": end_date, "data": results}
+    finally:
+        conn.close()
