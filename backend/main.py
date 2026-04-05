@@ -293,3 +293,33 @@ def get_patient_results(patient_id: int):
         return {"patient_id": patient_id, "history": results}
     finally:
         conn.close()
+
+# ── GET /api/stats/dashboard — System-wide aggregates ───────────────────────
+@app.get("/api/stats/dashboard")
+def get_dashboard_stats():
+    """
+    Fetch high-level aggregate statistics for a frontend dashboard.
+    Demonstrates: Using SQL aggregate functions (COUNT) to reduce payload size.
+    """
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            # Get total tests performed
+            cur.execute("SELECT COUNT(*) as total_tests FROM test_result")
+            total_tests = cur.fetchone()["total_tests"]
+            
+            # Get total critical alerts
+            cur.execute("SELECT COUNT(*) as total_critical FROM qc_alert WHERE severity = 'Critical'")
+            total_critical = cur.fetchone()["total_critical"]
+            
+            # Get total patients
+            cur.execute("SELECT COUNT(*) as total_patients FROM patient")
+            total_patients = cur.fetchone()["total_patients"]
+
+        return {
+            "total_patients": total_patients,
+            "total_tests_run": total_tests,
+            "critical_alerts_count": total_critical
+        }
+    finally:
+        conn.close()
