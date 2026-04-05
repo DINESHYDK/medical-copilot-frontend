@@ -128,3 +128,13 @@ $$;
 
 COMMENT ON FUNCTION calculate_effective_range IS
     'Computes effective reference range for a patient+test+method, applying condition adjustments';
+
+-- Added by Tushar: Helper function to quickly check if an alert is critical
+CREATE OR REPLACE FUNCTION is_critical_alert(p_severity VARCHAR) 
+RETURNS BOOLEAN
+LANGUAGE plpgsql 
+AS $$
+BEGIN
+    RETURN p_severity = 'Critical';
+END;
+$$;
