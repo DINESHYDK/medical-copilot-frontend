@@ -73,10 +73,29 @@ class LabResultResponse(BaseModel):
 
 # ─── ENDPOINTS ──────────────────────────────────────────────────────────────
 
+# ── GET / — Deep Health Check ───────────────────────────────────────────────
 @app.get("/")
 def root():
-    """Health check endpoint."""
-    return {"status": "ok", "module": "M45 - Reference Range Validation"}
+    """
+    Enhanced health check endpoint that actively pings the database.
+    Demonstrates: Validating live database connectivity.
+    """
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 AS db_is_alive")
+            db_status = cur.fetchone()
+            
+        return {
+            "status": "ok", 
+            "database_connected": bool(db_status),
+            "module": "M45 - Reference Range Validation"
+        }
+    except Exception as e:
+        return {"status": "error", "database_connected": False, "detail": str(e)}
+    finally:
+        if 'conn' in locals() and conn:
+            conn.close()
 
 
 # ── GET /api/patients — List all patients (for dropdowns) ───────────────────
@@ -323,3 +342,4 @@ def get_dashboard_stats():
         }
     finally:
         conn.close()
+
