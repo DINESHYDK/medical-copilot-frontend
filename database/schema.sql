@@ -129,3 +129,6 @@ CREATE INDEX idx_test_result_patient ON test_result(patient_id);
 CREATE INDEX idx_test_result_test ON test_result(test_id);
 CREATE INDEX idx_qc_alert_result ON qc_alert(result_id);
 CREATE INDEX idx_qc_alert_severity ON qc_alert(severity);
+
+-- Added by Tushar: Performance index for patient age calculation
+CREATE INDEX idx_patient_dob ON patient(dob);

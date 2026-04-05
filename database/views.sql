@@ -65,3 +65,12 @@ ORDER BY
 
 COMMENT ON VIEW vw_critical_patient_alerts IS
     'Dashboard-ready view: joins Patient, Lab Test, Test Result, Reference Range, Method, and QC Alert for display';
+
+-- Added by Tushar: Simplified view for quick patient demographics
+CREATE OR REPLACE VIEW vw_patient_demographics AS
+SELECT 
+    patient_id, 
+    sex, 
+    ethnicity, 
+    EXTRACT(YEAR FROM AGE(CURRENT_DATE, dob))::INT AS current_age
+FROM patient;

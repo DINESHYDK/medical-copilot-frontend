@@ -134,3 +134,6 @@ INSERT INTO range_adjustment (range_id, condition_id, adjustment_type, adjustmen
 -- Pregnant female, Hemoglobin = 10.5 (normal with pregnancy adjustment)
 -- INSERT INTO test_result (patient_id, test_id, method_id, measured_value, pregnancy_status)
 --     VALUES (3, 1, 1, 10.5, TRUE);
+
+-- Added by Tushar: Additional condition for future scaling
+INSERT INTO condition (condition_name) VALUES ('Hypertension');
