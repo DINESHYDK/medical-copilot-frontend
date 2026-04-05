@@ -13,11 +13,272 @@
 
 import streamlit as st
 import pandas as pd
+from datetime import timedelta
+import math
 
 # Import DB helper
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from frontend.db_connection import run_query, run_insert
+
+
+def _build_csv_download(df: pd.DataFrame) -> bytes:
+    """Convert a dataframe into UTF-8 CSV bytes for Streamlit download button."""
+    return df.to_csv(index=False).encode("utf-8")
+
+
+def _filter_alerts_by_date(display_df: pd.DataFrame) -> pd.DataFrame:
+    """Apply date filtering on the Time column when available and parseable."""
+    if "Time" not in display_df.columns or display_df.empty:
+        return display_df
+
+    parsed_time = pd.to_datetime(display_df["Time"], errors="coerce")
+    valid_time_mask = parsed_time.notna()
+    if not valid_time_mask.any():
+        return display_df
+
+    min_dt = parsed_time[valid_time_mask].min().date()
+    max_dt = parsed_time[valid_time_mask].max().date()
+
+    preset_col1, preset_col2, preset_col3, preset_col4 = st.columns(4)
+    with preset_col1:
+        if st.button("Today", use_container_width=True, key="alerts_preset_today"):
+            st.session_state["alerts_date_start"] = max_dt
+            st.session_state["alerts_date_end"] = max_dt
+            st.rerun()
+    with preset_col2:
+        if st.button("Last 7 Days", use_container_width=True, key="alerts_preset_7d"):
+            st.session_state["alerts_date_start"] = max(min_dt, max_dt - timedelta(days=6))
+            st.session_state["alerts_date_end"] = max_dt
+            st.rerun()
+    with preset_col3:
+        if st.button("Last 30 Days", use_container_width=True, key="alerts_preset_30d"):
+            st.session_state["alerts_date_start"] = max(min_dt, max_dt - timedelta(days=29))
+            st.session_state["alerts_date_end"] = max_dt
+            st.rerun()
+    with preset_col4:
+        if st.button("All Time", use_container_width=True, key="alerts_preset_all"):
+            st.session_state["alerts_date_start"] = min_dt
+            st.session_state["alerts_date_end"] = max_dt
+            st.rerun()
+
+    date_col1, date_col2 = st.columns(2)
+    with date_col1:
+        start_date = st.date_input(
+            "From date",
+            value=min_dt,
+            min_value=min_dt,
+            max_value=max_dt,
+            key="alerts_date_start"
+        )
+    with date_col2:
+        end_date = st.date_input(
+            "To date",
+            value=max_dt,
+            min_value=min_dt,
+            max_value=max_dt,
+            key="alerts_date_end"
+        )
+
+    if start_date > end_date:
+        st.warning("From date cannot be after To date.", icon=":material/warning:")
+        return display_df.iloc[0:0]
+
+    normalized_time = parsed_time.dt.tz_localize(None) if parsed_time.dt.tz is not None else parsed_time
+    date_mask = normalized_time.between(
+        pd.Timestamp(start_date),
+        pd.Timestamp(end_date) + pd.Timedelta(days=1) - pd.Timedelta(seconds=1),
+        inclusive="both"
+    )
+    return display_df[date_mask.fillna(False)]
+
+
+def _paginate_alerts(display_df: pd.DataFrame) -> tuple[pd.DataFrame, int, int]:
+    """Return paginated alert rows and paging metadata."""
+    if display_df.empty:
+        return display_df, 1, 1
+
+    pager_col1, pager_col2, pager_col3 = st.columns([2, 2, 3])
+    with pager_col1:
+        rows_per_page = st.selectbox(
+            "Rows per page",
+            options=[10, 25, 50, 100],
+            index=1,
+            key="alerts_rows_per_page"
+        )
+
+    total_pages = max(1, math.ceil(len(display_df) / rows_per_page))
+    default_page = st.session_state.get("alerts_page", 1)
+    if not isinstance(default_page, int):
+        default_page = 1
+    if default_page > total_pages:
+        default_page = total_pages
+
+    with pager_col2:
+        current_page = st.number_input(
+            "Page",
+            min_value=1,
+            max_value=total_pages,
+            value=default_page,
+            step=1,
+            key="alerts_page"
+        )
+
+    start_idx = (current_page - 1) * rows_per_page
+    end_idx = start_idx + rows_per_page
+    page_df = display_df.iloc[start_idx:end_idx]
+
+    with pager_col3:
+        st.caption(
+            f"Page {current_page} of {total_pages}  •  Showing rows {start_idx + 1}-{min(end_idx, len(display_df))}"
+        )
+
+    return page_df, current_page, total_pages
+
+
+def _render_alert_trend_chart(display_df: pd.DataFrame) -> None:
+    """Render daily alert trend from currently filtered rows when timestamps exist."""
+    if "Time" not in display_df.columns or display_df.empty:
+        return
+
+    parsed_time = pd.to_datetime(display_df["Time"], errors="coerce")
+    valid_time = parsed_time.dropna()
+    if valid_time.empty:
+        return
+
+    if valid_time.dt.tz is not None:
+        valid_time = valid_time.dt.tz_localize(None)
+
+    trend_df = (
+        valid_time.dt.date.value_counts()
+        .sort_index()
+        .rename_axis("Date")
+        .to_frame(name="Alerts")
+    )
+    st.markdown("##### :material/monitoring: Daily Alert Trend")
+    st.line_chart(trend_df, color="#0A66C2")
+
+
+def _filter_reference_ranges(df_ranges: pd.DataFrame) -> pd.DataFrame:
+    """Filter reference ranges by sex, ethnicity, and age overlap."""
+    if df_ranges.empty:
+        return df_ranges
+
+    st.markdown("##### :material/tune: Range Filters")
+
+    filter_col1, filter_col2, filter_col3 = st.columns(3)
+
+    available_sex = sorted(df_ranges["Sex"].dropna().astype(str).unique().tolist()) if "Sex" in df_ranges.columns else []
+    available_ethnicity = sorted(
+        df_ranges["Ethnicity"].dropna().astype(str).unique().tolist()
+    ) if "Ethnicity" in df_ranges.columns else []
+
+    with filter_col1:
+        selected_sex = st.multiselect(
+            "Sex",
+            options=available_sex,
+            default=available_sex,
+            key="ranges_filter_sex"
+        )
+
+    with filter_col2:
+        selected_ethnicity = st.multiselect(
+            "Ethnicity",
+            options=available_ethnicity,
+            default=available_ethnicity,
+            key="ranges_filter_ethnicity"
+        )
+
+    min_age = int(df_ranges["Min Age"].min()) if "Min Age" in df_ranges.columns else 0
+    max_age = int(df_ranges["Max Age"].max()) if "Max Age" in df_ranges.columns else 120
+
+    with filter_col3:
+        selected_age = st.slider(
+            "Age Window",
+            min_value=min_age,
+            max_value=max_age,
+            value=(min_age, max_age),
+            key="ranges_filter_age_window"
+        )
+
+    filtered_df = df_ranges.copy()
+
+    if available_sex and selected_sex:
+        filtered_df = filtered_df[filtered_df["Sex"].astype(str).isin(selected_sex)]
+    elif available_sex and not selected_sex:
+        filtered_df = filtered_df.iloc[0:0]
+
+    if available_ethnicity and selected_ethnicity:
+        filtered_df = filtered_df[filtered_df["Ethnicity"].astype(str).isin(selected_ethnicity)]
+    elif available_ethnicity and not selected_ethnicity:
+        filtered_df = filtered_df.iloc[0:0]
+
+    if "Min Age" in filtered_df.columns and "Max Age" in filtered_df.columns:
+        age_low, age_high = selected_age
+        filtered_df = filtered_df[
+            (filtered_df["Max Age"] >= age_low) &
+            (filtered_df["Min Age"] <= age_high)
+        ]
+
+    return filtered_df
+
+
+def _build_range_method_summary(df_ranges: pd.DataFrame) -> pd.DataFrame:
+    """Create grouped summary stats by instrument and technique."""
+    if df_ranges.empty or "Instrument" not in df_ranges.columns or "Technique" not in df_ranges.columns:
+        return pd.DataFrame()
+
+    working_df = df_ranges.copy()
+    if "Lower Limit" in working_df.columns and "Upper Limit" in working_df.columns:
+        working_df["Range Width"] = working_df["Upper Limit"] - working_df["Lower Limit"]
+    else:
+        working_df["Range Width"] = pd.NA
+
+    summary_df = (
+        working_df.groupby(["Instrument", "Technique"], dropna=False)
+        .agg(
+            ranges=("Range ID", "count"),
+            avg_range_width=("Range Width", "mean"),
+            min_lower=("Lower Limit", "min"),
+            max_upper=("Upper Limit", "max")
+        )
+        .reset_index()
+    )
+    summary_df = summary_df.rename(columns={
+        "ranges": "Range Rows",
+        "avg_range_width": "Avg Width",
+        "min_lower": "Min Lower",
+        "max_upper": "Max Upper"
+    })
+    return summary_df
+
+
+def _detect_range_overlaps(df_ranges: pd.DataFrame) -> pd.DataFrame:
+    """Detect age-window overlaps within the same sex/instrument/technique grouping."""
+    required_cols = {"Range ID", "Sex", "Instrument", "Technique", "Min Age", "Max Age"}
+    if df_ranges.empty or not required_cols.issubset(df_ranges.columns):
+        return pd.DataFrame()
+
+    overlaps = []
+    group_cols = ["Sex", "Instrument", "Technique"]
+    grouped = df_ranges.sort_values(["Sex", "Instrument", "Technique", "Min Age", "Max Age"]).groupby(group_cols, dropna=False)
+
+    for group_keys, group_df in grouped:
+        previous_row = None
+        for _, row in group_df.iterrows():
+            if previous_row is not None and row["Min Age"] <= previous_row["Max Age"]:
+                overlaps.append({
+                    "Sex": group_keys[0],
+                    "Instrument": group_keys[1],
+                    "Technique": group_keys[2],
+                    "Range A": int(previous_row["Range ID"]),
+                    "Range B": int(row["Range ID"]),
+                    "Age Overlap": f"{int(row['Min Age'])}-{int(previous_row['Max Age'])}"
+                })
+            if previous_row is None or row["Max Age"] > previous_row["Max Age"]:
+                previous_row = row
+
+    return pd.DataFrame(overlaps)
 
 
 # ─── CACHED DATA FETCHERS ──────────────────────────────────────────────────
@@ -244,11 +505,31 @@ def reference_range_dashboard():
         st.markdown("#### :material/monitoring: QC Alerts Dashboard")
         st.caption("Data source: `vw_critical_patient_alerts` — a database VIEW joining 5 tables")
 
-        severity_filter = st.radio(
-            "Filter by severity:",
-            ["All", "Critical", "Abnormal", "Normal"],
-            horizontal=True
-        )
+        controls_col1, controls_col2 = st.columns([4, 1])
+        with controls_col1:
+            severity_filter = st.radio(
+                "Filter by severity:",
+                ["All", "Critical", "Abnormal", "Normal"],
+                horizontal=True,
+                key="alerts_severity_filter"
+            )
+        with controls_col2:
+            st.markdown("")
+            st.markdown("")
+            if st.button(
+                ":material/restart_alt: Reset Filters",
+                use_container_width=True,
+                help="Reset severity, search text, and date window"
+            ):
+                st.session_state["alerts_severity_filter"] = "All"
+                st.session_state["alerts_search_query"] = ""
+                st.session_state["alerts_page"] = 1
+                if "alerts_date_start" in st.session_state:
+                    del st.session_state["alerts_date_start"]
+                if "alerts_date_end" in st.session_state:
+                    del st.session_state["alerts_date_end"]
+                st.toast("Alert filters reset", icon=":material/restart_alt:")
+                st.rerun()
 
         with st.spinner(":material/sync: Syncing with clinical database..."):
             try:
@@ -295,7 +576,8 @@ def reference_range_dashboard():
             search_query = st.text_input(
                 ":material/search: Search alerts",
                 placeholder="Filter by Patient ID, Test Name, or Alert Type...",
-                help="Type to filter the table below"
+                help="Type to filter the table below",
+                key="alerts_search_query"
             )
 
             # Prepare display DataFrame
@@ -333,12 +615,33 @@ def reference_range_dashboard():
                 )
                 display_df = display_df[mask]
 
+            st.markdown("##### :material/date_range: Time Window")
+            display_df = _filter_alerts_by_date(display_df)
+
             if display_df.empty:
                 st.info(
-                    f'No results matching "{search_query}".',
+                    "No alerts found for the current filters.",
                     icon=":material/search_off:"
                 )
             else:
+                download_col, count_col = st.columns([2, 3])
+                with download_col:
+                    csv_bytes = _build_csv_download(display_df)
+                    st.download_button(
+                        ":material/download: Export Filtered Alerts (CSV)",
+                        data=csv_bytes,
+                        file_name="qc_alerts_filtered.csv",
+                        mime="text/csv",
+                        use_container_width=True,
+                        help="Exports exactly what is currently shown in the table"
+                    )
+                with count_col:
+                    st.caption(f"Showing {len(display_df)} alert record(s) after filters")
+
+                _render_alert_trend_chart(display_df)
+
+                paged_df, _, _ = _paginate_alerts(display_df)
+
                 # ── Professional Dataframe (native column_config) ────────
                 column_config = {
                     "Patient ID": st.column_config.NumberColumn("Patient ID", format="%d"),
@@ -356,7 +659,7 @@ def reference_range_dashboard():
                 }
 
                 st.dataframe(
-                    display_df,
+                    paged_df,
                     use_container_width=True,
                     hide_index=True,
                     column_config=column_config
@@ -412,6 +715,52 @@ def reference_range_dashboard():
             }
             df_ranges = df_ranges.rename(columns=rename_map_r)
 
+            filtered_ranges = _filter_reference_ranges(df_ranges)
+
+            summary_col1, summary_col2, summary_col3 = st.columns(3)
+            with summary_col1:
+                st.metric("Visible Ranges", len(filtered_ranges))
+            with summary_col2:
+                if "Instrument" in filtered_ranges.columns:
+                    st.metric("Instruments", int(filtered_ranges["Instrument"].nunique()))
+                else:
+                    st.metric("Instruments", 0)
+            with summary_col3:
+                if "Technique" in filtered_ranges.columns:
+                    st.metric("Techniques", int(filtered_ranges["Technique"].nunique()))
+                else:
+                    st.metric("Techniques", 0)
+
+            if filtered_ranges.empty:
+                st.info("No reference ranges match the selected filters.", icon=":material/search_off:")
+                return
+
+            st.download_button(
+                ":material/download: Export Filtered Ranges (CSV)",
+                data=_build_csv_download(filtered_ranges),
+                file_name="reference_ranges_filtered.csv",
+                mime="text/csv",
+                use_container_width=True,
+                help="Exports currently visible range rows"
+            )
+
+            with st.expander("Method Summary", expanded=False):
+                method_summary = _build_range_method_summary(filtered_ranges)
+                if method_summary.empty:
+                    st.caption("No method summary available for current filters.")
+                else:
+                    st.dataframe(method_summary, use_container_width=True, hide_index=True)
+
+            overlap_df = _detect_range_overlaps(filtered_ranges)
+            if overlap_df.empty:
+                st.success("No overlapping age windows detected in the visible ranges.", icon=":material/verified:")
+            else:
+                st.warning(
+                    f"Detected {len(overlap_df)} overlapping age-window pair(s). Review these ranges for ambiguity.",
+                    icon=":material/warning:"
+                )
+                st.dataframe(overlap_df, use_container_width=True, hide_index=True)
+
             range_col_config = {
                 "Range ID": st.column_config.NumberColumn("Range ID", format="%d"),
                 "Min Age": st.column_config.NumberColumn("Min Age", format="%d"),
@@ -423,14 +772,14 @@ def reference_range_dashboard():
                 "Effective Date": st.column_config.DateColumn("Effective", format="DD MMM YYYY"),
             }
             st.dataframe(
-                df_ranges,
+                filtered_ranges,
                 use_container_width=True,
                 hide_index=True,
                 column_config=range_col_config
             )
 
             # Condition-based adjustments
-            range_ids = [r['range_id'] for r in ranges]
+            range_ids = [int(rid) for rid in filtered_ranges["Range ID"].tolist()] if "Range ID" in filtered_ranges.columns else []
             if range_ids:
                 with st.spinner(":material/sync: Loading condition adjustments..."):
                     try:

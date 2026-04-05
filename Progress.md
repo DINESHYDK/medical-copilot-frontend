@@ -1,7 +1,7 @@
 # Module M45 — Reference Range Validation Database  
 ## Progress Tracker  
 **Branch:** `module/M45-reference-range`  
-**Last Updated:** 2026-03-15  
+**Last Updated:** 2026-04-05  
 
 ---
 
@@ -138,6 +138,20 @@
 | Native KPIs | `st.metric()` inside `st.container(border=True)` — no HTML spans | ✅ Done |
 | Theme via config only | All colors managed by `.streamlit/config.toml` — no inline style overrides | ✅ Done |
 | Added docstrings | All data-fetcher functions now have PEP 257 docstrings | ✅ Done |
+
+---
+
+## ✅ Phase 8: Alerts Usability Upgrade — COMPLETE  
+**Date:** 2026-04-05
+
+| Change | Description | Status |
+|--------|-------------|--------|
+| Date-range filtering | Added "From date" and "To date" controls on Alerts tab to filter `result_time` records | ✅ Done |
+| CSV export | Added one-click export of the currently filtered alerts table | ✅ Done |
+| Filtered record count | Added caption showing visible alert count after search + severity + date filters | ✅ Done |
+| Safe fallback behavior | Date filter auto-skips when timestamps are missing/unparseable, avoiding runtime breaks | ✅ Done |
+| Reset all filters | Added a one-click reset action for severity, search text, and date controls | ✅ Done |
+| Daily trend chart | Added native `st.line_chart` showing per-day alert volume for filtered results | ✅ Done |
 
 ---
 
