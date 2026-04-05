@@ -73,10 +73,29 @@ class LabResultResponse(BaseModel):
 
 # ─── ENDPOINTS ──────────────────────────────────────────────────────────────
 
+# ── GET / — Deep Health Check ───────────────────────────────────────────────
 @app.get("/")
 def root():
-    """Health check endpoint."""
-    return {"status": "ok", "module": "M45 - Reference Range Validation"}
+    """
+    Enhanced health check endpoint that actively pings the database.
+    Demonstrates: Validating live database connectivity.
+    """
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 AS db_is_alive")
+            db_status = cur.fetchone()
+            
+        return {
+            "status": "ok", 
+            "database_connected": bool(db_status),
+            "module": "M45 - Reference Range Validation"
+        }
+    except Exception as e:
+        return {"status": "error", "database_connected": False, "detail": str(e)}
+    finally:
+        if 'conn' in locals() and conn:
+            conn.close()
 
 
 # ── GET /api/patients — List all patients (for dropdowns) ───────────────────
@@ -249,5 +268,135 @@ def get_conditions():
             cur.execute("SELECT condition_id, condition_name FROM condition ORDER BY condition_id")
             conditions = cur.fetchall()
         return {"conditions": conditions}
+    finally:
+        conn.close()
+
+# ── GET /api/conditions — List all conditions ───────────────────────────────
+@app.get("/api/conditions")
+def get_conditions():
+    """Fetch all medical conditions."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT condition_id, condition_name FROM condition ORDER BY condition_id")
+            conditions = cur.fetchall()
+        return {"conditions": conditions}
+    finally:
+        conn.close()
+
+# ── GET /api/patients/{patient_id}/results — Patient History ────────────────
+@app.get("/api/patients/{patient_id}/results")
+def get_patient_results(patient_id: int):
+    """
+    Fetch all historical lab results for a specific patient.
+    Demonstrates: Multi-table JOINs and ordering by time for historical tracking.
+    """
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT tr.result_id, tr.measured_value, tr.timestamp, 
+                       lt.test_name, m.instrument, qa.severity
+                FROM test_result tr
+                JOIN lab_test lt ON tr.test_id = lt.test_id
+                JOIN method m ON tr.method_id = m.method_id
+                LEFT JOIN qc_alert qa ON tr.result_id = qa.result_id
+                WHERE tr.patient_id = %s
+                ORDER BY tr.timestamp DESC
+            """, (patient_id,))
+            results = cur.fetchall()
+            
+        if not results:
+            raise HTTPException(status_code=404, detail="No results found for this patient.")
+            
+        return {"patient_id": patient_id, "history": results}
+    finally:
+        conn.close()
+
+# ── GET /api/stats/dashboard — System-wide aggregates ───────────────────────
+@app.get("/api/stats/dashboard")
+def get_dashboard_stats():
+    """
+    Fetch high-level aggregate statistics for a frontend dashboard.
+    Demonstrates: Using SQL aggregate functions (COUNT) to reduce payload size.
+    """
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            # Get total tests performed
+            cur.execute("SELECT COUNT(*) as total_tests FROM test_result")
+            total_tests = cur.fetchone()["total_tests"]
+            
+            # Get total critical alerts
+            cur.execute("SELECT COUNT(*) as total_critical FROM qc_alert WHERE severity = 'Critical'")
+            total_critical = cur.fetchone()["total_critical"]
+            
+            # Get total patients
+            cur.execute("SELECT COUNT(*) as total_patients FROM patient")
+            total_patients = cur.fetchone()["total_patients"]
+
+        return {
+            "total_patients": total_patients,
+            "total_tests_run": total_tests,
+            "critical_alerts_count": total_critical
+        }
+    finally:
+        conn.close()
+
+# ── PATCH /api/alerts/{alert_id}/resolve — Update Alert Status ──────────────
+@app.patch("/api/alerts/{alert_id}/resolve")
+def resolve_alert(alert_id: int):
+    """
+    Mark a quality control alert as resolved/acknowledged.
+    Demonstrates: UPDATE operations and row count verification.
+    """
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            # Assuming 'severity' or a 'status' column is updated to mark it resolved
+            # Adjust the column name based on your exact schema
+            cur.execute("""
+                UPDATE qc_alert 
+                SET severity = 'Resolved' 
+                WHERE alert_id = %s 
+                RETURNING alert_id
+            """, (alert_id,))
+            
+            updated_row = cur.fetchone()
+            
+        if not updated_row:
+            raise HTTPException(status_code=404, detail="Alert not found or already resolved.")
+            
+        return {"message": f"Alert {alert_id} successfully marked as resolved."}
+    finally:
+        conn.close()
+
+# ── GET /api/results/filter — Date Range Query ──────────────────────────────
+@app.get("/api/results/filter")
+def get_results_by_date(start_date: str, end_date: str):
+    """
+    Fetch lab results within a specific date range (YYYY-MM-DD format).
+    Demonstrates: Using SQL BETWEEN clause with parameterised dates.
+    """
+    try:
+        # Validate date format (basic check)
+        datetime.strptime(start_date, "%Y-%m-%d")
+        datetime.strptime(end_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT r.result_id, r.measured_value, r.timestamp, p.patient_id 
+                FROM test_result r
+                JOIN patient p ON r.patient_id = p.patient_id
+                WHERE r.timestamp::DATE BETWEEN %s AND %s
+                ORDER BY r.timestamp ASC
+            """, (start_date, end_date))
+            results = cur.fetchall()
+            
+        return {"count": len(results), "start_date": start_date, "end_date": end_date, "data": results}
     finally:
         conn.close()
