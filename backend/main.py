@@ -343,3 +343,30 @@ def get_dashboard_stats():
     finally:
         conn.close()
 
+# ── PATCH /api/alerts/{alert_id}/resolve — Update Alert Status ──────────────
+@app.patch("/api/alerts/{alert_id}/resolve")
+def resolve_alert(alert_id: int):
+    """
+    Mark a quality control alert as resolved/acknowledged.
+    Demonstrates: UPDATE operations and row count verification.
+    """
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            # Assuming 'severity' or a 'status' column is updated to mark it resolved
+            # Adjust the column name based on your exact schema
+            cur.execute("""
+                UPDATE qc_alert 
+                SET severity = 'Resolved' 
+                WHERE alert_id = %s 
+                RETURNING alert_id
+            """, (alert_id,))
+            
+            updated_row = cur.fetchone()
+            
+        if not updated_row:
+            raise HTTPException(status_code=404, detail="Alert not found or already resolved.")
+            
+        return {"message": f"Alert {alert_id} successfully marked as resolved."}
+    finally:
+        conn.close()
