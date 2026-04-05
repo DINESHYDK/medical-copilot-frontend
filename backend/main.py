@@ -251,3 +251,45 @@ def get_conditions():
         return {"conditions": conditions}
     finally:
         conn.close()
+
+# ── GET /api/conditions — List all conditions ───────────────────────────────
+@app.get("/api/conditions")
+def get_conditions():
+    """Fetch all medical conditions."""
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT condition_id, condition_name FROM condition ORDER BY condition_id")
+            conditions = cur.fetchall()
+        return {"conditions": conditions}
+    finally:
+        conn.close()
+
+# ── GET /api/patients/{patient_id}/results — Patient History ────────────────
+@app.get("/api/patients/{patient_id}/results")
+def get_patient_results(patient_id: int):
+    """
+    Fetch all historical lab results for a specific patient.
+    Demonstrates: Multi-table JOINs and ordering by time for historical tracking.
+    """
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT tr.result_id, tr.measured_value, tr.timestamp, 
+                       lt.test_name, m.instrument, qa.severity
+                FROM test_result tr
+                JOIN lab_test lt ON tr.test_id = lt.test_id
+                JOIN method m ON tr.method_id = m.method_id
+                LEFT JOIN qc_alert qa ON tr.result_id = qa.result_id
+                WHERE tr.patient_id = %s
+                ORDER BY tr.timestamp DESC
+            """, (patient_id,))
+            results = cur.fetchall()
+            
+        if not results:
+            raise HTTPException(status_code=404, detail="No results found for this patient.")
+            
+        return {"patient_id": patient_id, "history": results}
+    finally:
+        conn.close()
