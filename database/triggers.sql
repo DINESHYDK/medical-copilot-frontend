@@ -126,3 +126,6 @@ INSERT INTO test_result (patient_id, test_id, method_id, measured_value, pregnan
 -- Normal: Male (ID 6), Cholesterol = 185 (range 125-200) → Normal
 INSERT INTO test_result (patient_id, test_id, method_id, measured_value, pregnancy_status)
     VALUES (6, 5, 2, 185.0, FALSE);
+
+-- Added by Tushar: Performance index for the validation trigger lookups
+CREATE INDEX idx_range_validation ON reference_range(test_id, method_id, sex, min_age, max_age);
